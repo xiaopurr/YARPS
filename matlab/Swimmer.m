@@ -12,8 +12,8 @@ classdef Swimmer < handle
         Dr;
         va;
         vfield;
-        vfx=0;
-        vfy=0;
+        vfx;
+        vfy;
         traj=[];
         %rOrientation;
         ori=[];
@@ -29,6 +29,8 @@ classdef Swimmer < handle
             obj.va = va;
             
             obj.vfield = vfield;
+            obj.vfx = vfield(1);
+            obj.vfy = vfield(2);
         end
         function onestep(obj)
             %Brownian Motion
