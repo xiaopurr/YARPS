@@ -39,8 +39,8 @@ class Swimmer2d:
         
         """ The active swimming """
         self.theta += np.sqrt(2*self.Dr/self.dt)*np.random.vonmises()*self.dt
-        self.x += np.sin(self.theta)*self.va
-        self.y += np.cos(self.theta)*self.va
+        self.x += np.sin(self.theta)*self.va*self.dt
+        self.y += np.cos(self.theta)*self.va*self.dt
         if self.y < self.ymin:
             self.y = self.ymin
         
