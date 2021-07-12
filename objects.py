@@ -9,44 +9,70 @@ Created on Tue May 25 17:35:42 2021
 
 import numpy as np
 import itertools
+import math
 class Swimmer2d:
     
-    def __init__(self, D, va=0, vfield=None, record_orientation=False):
+    def __init__(self, D, va=0, vfield=None, alpha = 0):
         self.x = 0
-        self.y = 0
+        self.y = 50
         self.theta = 0 #theta is the angle the orientation makes with the y axis
         self.D = D
         self.Dr = D*3
         self.va = va
-        self.dt = 1
+        self.v0 = va
+        self.dt = 0.1
         self.vfield = vfield
         self.vfx=0
         self.vfy=0
+        self.alpha = alpha
+        self.PTL = 10;
         if self.vfield!=None:
             self.vfx = vfield[0]
             self.vfy = vfield[1]
 
-        self.ymin = -50
-        self.traj=[]
-        self.record_orientation = record_orientation
+        self.ymin = 0
+        self.xmin = -10
+        self.xmax = 10
+        self.Lx = 20
+        self.traj = []
         self.ori = []
+
+    
+    def updateva(self):
+        # self.va = max(self.v0-self.alpha*self.y, -self.vfy*2)
+        self.va = 2
+        if self.y <42:
+            nP = np.floor(self.y/self.PTL)
+            zOut = self.y- nP*self.PTL
+            self.va = 10 - nP*2
+            if zOut < 2:
+                self.va += math.erfc(zOut)
+            if zOut > 8:
+                self.va -= math.erfc(self.PTL-zOut)
+        if self.y <2:
+            self.va = 10
+        
+        # self.va=10-np.floor(z*self.alpha)-math.erf
+    
     def step(self):
-        self.traj.append([self.x, self.y])
+        """
+        single step method for a swimmer, encoding the thermal brownian motion,
+        the active swimming.
+
+        Returns
+        -------
+        None.
+
+        """
         
-        """ The thermal brownian motion with gaussian white noise """
-        self.x += (np.sqrt(2*self.D/self.dt)*np.random.normal()+self.vfx)*self.dt
-        self.y += (np.sqrt(2*self.D/self.dt)*np.random.normal()+self.vfy)*self.dt
         
-        """ The active swimming """
-        self.theta += np.sqrt(2*self.Dr/self.dt)*np.random.vonmises()*self.dt
-        self.x += np.sin(self.theta)*self.va*self.dt
-        self.y += np.cos(self.theta)*self.va*self.dt
-        if self.y < self.ymin:
-            self.y = self.ymin
-        
-    def rostep(self):
+        """ record position and orientation """
         self.traj.append([self.x, self.y])
         self.ori.append(self.theta)
+        
+        """ change the active speed """
+        self.updateva()
+        
         """ The thermal brownian motion with gaussian white noise """
         self.x += (np.sqrt(2*self.D/self.dt)*np.random.normal()+self.vfx)*self.dt
         self.y += (np.sqrt(2*self.D/self.dt)*np.random.normal()+self.vfy)*self.dt
@@ -55,15 +81,29 @@ class Swimmer2d:
         self.theta += np.sqrt(2*self.Dr/self.dt)*np.random.normal()*self.dt
         self.x += np.sin(self.theta)*self.va*self.dt
         self.y += np.cos(self.theta)*self.va*self.dt
+
         if self.y < self.ymin:
             self.y = self.ymin
+        if self.x < self.xmin:
+            self.x=self.x+self.Lx
+        if self.x > self.xmax:
+            self.x=self.x-self.Lx
     def time_evo(self, T_total):
-        if self.record_orientation:
-            for i in range(T_total):
-                self.rostep()
-        else:
-            for i in range(T_total):
-                self.step()
+        """
+        Take T_total number of step using the built in step method
+
+        Parameters
+        ----------
+        T_total : Integer
+            The total number of time step to take.
+
+        Returns
+        -------
+        None.
+
+        """
+        for i in range(T_total):
+            self.step()
         # va = 
     # def getTraj(self):
     #     return self.traj
@@ -71,11 +111,12 @@ class Swimmer2d:
 class ActiveEnsemble:
     ens=[]
 
-    def __init__(self, N, D, va, vfield=None, record_orientation=False):
+    def __init__(self, N, D, va, vfield=None,alpha=0):
         self.D = D
         self.N=N
-        self.record_orientation = record_orientation
-        self.ens = [Swimmer2d(D=D, va= va, vfield=vfield,record_orientation=self.record_orientation) for i in range(N)]
+        # self.record_orientation = record_orientation
+        
+        self.ens = [Swimmer2d(D=D, va= va, vfield=vfield,alpha=alpha) for i in range(N)]
         
     
     def time_evo(self, T_total):
@@ -95,13 +136,44 @@ class ActiveEnsemble:
         # for i in pos:
         #     position.extend(i)
         # pos=[]
-        density, bins = np.histogram(pos, bins=30)
+        density, bins = np.histogram(pos, bins=60)
         bins = bins[1:]-(bins[1]-bins[0])/2
         return [density, bins]
-    def oriProfile(self, Tsteady = 1000):
-        ori = []
+    
+    def filterOri(self, TS= 1000, zmin = 5):
+        t_total = len(self.ens[0].traj)
+        o = []
+        zmin_c = zmin+self.ens[0].ymin
         for w in self.ens:
-            ori.extend(w.theta)
+            for t in range(TS, t_total):
+                if w.traj[t][1]>zmin_c:
+                    o.append(w.ori[t])
+        
+        o = np.arctan2(np.sin(o),np.cos(o))
+        return o
+    def filterOriZbin(self, Tsteady, zLow, zHigh):
+        ori = []
+        zLow = self.ens[0].ymin+zLow
+        zHigh = self.ens[0].ymin+zHigh
+        for w in self.ens:
+            for t in range(Tsteady, len(w.traj)):
+                if w.traj[t][1] > zLow and w.traj[t][1]<zHigh:
+                    ori.append(w.ori[t])
+        sin = [np.sin(i) for i in ori]
+        cos = [np.cos(i) for i in ori]
+        ori_wrapped = [np.arctan2(sin[i],cos[i]) for i in range(len(sin))]
+        return ori_wrapped
+
+    def savedata(self, filename):
+        import pandas as pd
+        df = pd.DataFrame({})
+        for i in range(self.N):
+            df['traj{0}'.format(i)]=self.ens[i].traj
+        df.to_csv(filename+'traj.csv')
+        df = pd.DataFrame({})
+        for i in range(self.N):
+            df['ori{0}'.format(i)]=self.ens[i].ori
+        df.to_csv(filename+'ori.csv')
 class Walker2d:
     def __init__(self, D):
         self.x = 0
